@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { protect } = require('../middleware/authMiddleware');
-const { uploadFile, getFiles, deleteFile, createFolder } = require('../controllers/fileController');
+const { uploadFile, confirmUpload, getFiles, deleteFile, createFolder } = require('../controllers/fileController');
 
 // Multer setup using disk storage (better for large files)
 const storage = multer.diskStorage({});
@@ -26,7 +26,8 @@ const upload = multer({
     }
 });
 
-router.post('/upload', protect, upload.single('file'), uploadFile);
+router.post('/upload', protect, uploadFile); // Changed: no longer using multer
+router.post('/confirm-upload', protect, confirmUpload);
 router.post('/create-folder', protect, createFolder);
 router.get('/', protect, getFiles);
 router.delete('/:id', protect, deleteFile);

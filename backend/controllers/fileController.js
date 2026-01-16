@@ -24,75 +24,108 @@ const sanitizeFileName = (filename) => {
     return filename.replace(/[^a-zA-Z0-9.\-_]/g, '_');
 };
 
+// @desc    Prepare file upload with signed URL
+// @route   POST /api/files/upload
+// @access  Private
 const uploadFile = async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'No file uploaded' });
+        const { fileName, fileType, fileSize, parentId } = req.body;
+
+        // Validate required fields
+        if (!fileName || !fileType || !fileSize) {
+            return res.status(400).json({ message: 'Missing required fields: fileName, fileType, fileSize' });
         }
 
-        const { originalname, mimetype, size, path } = req.file;
-
         // Validate file type
-        if (!ALLOWED_FILE_TYPES.includes(mimetype)) {
-            try { await unlinkFile(path); } catch (e) { }
+        if (!ALLOWED_FILE_TYPES.includes(fileType)) {
             return res.status(400).json({ message: 'File type not allowed' });
         }
 
         // Validate file size
-        if (size > MAX_FILE_SIZE) {
-            try { await unlinkFile(path); } catch (e) { }
+        if (fileSize > MAX_FILE_SIZE) {
             return res.status(400).json({ message: 'File size exceeds limit (100MB)' });
         }
 
-        // Sanitize filename and create unique key
-        const sanitizedFilename = sanitizeFileName(originalname);
-        const sanitizedUsername = req.user.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        const timestamp = Date.now();
-        const s3Key = `users/${req.user.id}-${sanitizedUsername}/${timestamp}-${sanitizedFilename}`;
-
         // Validate parent folder if provided
-        if (req.body.parentId) {
-            const parentFolder = await File.findById(req.body.parentId);
+        if (parentId) {
+            const parentFolder = await File.findById(parentId);
             if (!parentFolder || !parentFolder.isFolder || parentFolder.userId.toString() !== req.user.id) {
-                try { await unlinkFile(path); } catch (e) { }
                 return res.status(400).json({ message: 'Invalid parent folder' });
             }
         }
 
-        // Upload to S3 (required for all environments)
-        console.log(`Attempting S3 upload for ${originalname} (${mimetype})`);
+        // Sanitize filename and create unique key
+        const sanitizedFilename = sanitizeFileName(fileName);
+        const sanitizedUsername = req.user.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        const timestamp = Date.now();
+        const s3Key = `users/${req.user.id}-${sanitizedUsername}/${timestamp}-${sanitizedFilename}`;
 
-        // Create read stream from the temp file
-        const fileStream = fs.createReadStream(path);
-
+        // Create signed URL for direct S3 upload (15 minutes expiry)
         const command = new PutObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key: s3Key,
-            Body: fileStream,
-            ContentType: mimetype,
+            ContentType: fileType,
         });
 
-        await s3Client.send(command);
-        console.log(`S3 upload successful for ${originalname}`);
+        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 }); // 15 minutes
 
-        // Clean up local temp file
-        await unlinkFile(path);
-
-        const file = await File.create({
+        // Prepare file data for database (will be saved after successful upload)
+        const fileData = {
             userId: req.user.id,
             fileName: sanitizedFilename,
-            fileType: mimetype,
+            fileType: fileType,
             s3Key: s3Key,
-            size: size,
-            parentId: req.body.parentId || null,
+            size: fileSize,
+            parentId: parentId || null,
+        };
+
+        const uploadId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
+        res.status(200).json({
+            signedUrl,
+            fileData,
+            uploadId
         });
+    } catch (error) {
+        console.error('Upload preparation error:', error.message);
+        res.status(500).json({ message: 'Failed to prepare upload' });
+    }
+};
+
+// @desc    Confirm successful upload and save to database
+// @route   POST /api/files/confirm-upload
+// @access  Private
+const confirmUpload = async (req, res) => {
+    try {
+        const { uploadId, fileData } = req.body;
+
+        if (!uploadId || !fileData) {
+            return res.status(400).json({ message: 'Missing uploadId or fileData' });
+        }
+
+        // Verify the file data belongs to the authenticated user
+        if (fileData.userId !== req.user.id) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        // Check if file already exists (prevent duplicate confirms)
+        const existingFile = await File.findOne({
+            userId: req.user.id,
+            s3Key: fileData.s3Key
+        });
+
+        if (existingFile) {
+            return res.status(200).json(existingFile);
+        }
+
+        // Create the database record
+        const file = await File.create(fileData);
+        console.log(`Upload confirmed and saved: ${file.fileName}`);
 
         res.status(201).json(file);
     } catch (error) {
-        console.error('Upload Error:', error.message);
-        // Attempt cleanup if upload fails
-        try { if (req.file?.path) await unlinkFile(req.file.path); } catch (e) { }
-        res.status(500).json({ message: 'File upload failed' });
+        console.error('Upload confirmation error:', error.message);
+        res.status(500).json({ message: 'Failed to confirm upload' });
     }
 };
 
@@ -261,6 +294,7 @@ const deleteFile = async (req, res) => {
 
 module.exports = {
     uploadFile,
+    confirmUpload,
     getFiles,
     deleteFile,
     createFolder,

@@ -64,7 +64,7 @@ const FileQueueItem: React.FC<FileQueueItemProps> = ({ file, onRemove, uploading
 
 const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState<{ [key: number]: number }>({});
   const [files, setFiles] = useState<File[]>([]);
   const [showToast, setShowToast] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -76,87 +76,83 @@ const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
     }
   };
 
-  const uploadIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  React.useEffect(() => {
-    return () => {
-      if (uploadIntervalRef.current) clearInterval(uploadIntervalRef.current);
-    };
-  }, []);
 
-  const startUpload = () => {
+  const startUpload = async () => {
     if (files.length === 0) return;
     setUploading(true);
-    setProgress(0);
+    setProgress({});
 
-    let currentProgress = 0;
-    uploadIntervalRef.current = setInterval(() => {
-      currentProgress += 5;
-      if (currentProgress >= 100) {
-        if (uploadIntervalRef.current) {
-          clearInterval(uploadIntervalRef.current);
-          uploadIntervalRef.current = null;
-        }
+    const uploadPromises = files.map(async (file, index) => {
+      try {
+        // Step 1: Prepare upload - get signed URL
+        const metadata = {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          parentId
+        };
 
-        setProgress(100);
-        setUploading(false);
+        const { signedUrl, fileData, uploadId } = await fileService.prepareUpload(metadata);
 
-        const uploadPromises = files.map(f => {
-          const formData = new FormData();
-          formData.append('file', f);
-          // if (parentId) formData.append('parentId', parentId); // backend might not support folder nesting yet
-
-          return fileService.uploadFile(formData);
+        // Step 2: Upload directly to S3 with real progress tracking
+        await fileService.uploadToS3(signedUrl, file, (percent) => {
+          setProgress(prev => ({ ...prev, [index]: percent }));
         });
 
-        Promise.all(uploadPromises)
-          .then(responses => {
-            // Map FileUploadResponse to StorageFile
-            const newFiles: StorageFile[] = responses.map(response => {
-              // Safely determine file type
-              let fileType: FileType = 'file' as FileType;
-              if (response.fileType && typeof response.fileType === 'string') {
-                if (response.fileType.startsWith('image/')) {
-                  fileType = 'image';
-                } else if (response.fileType.startsWith('video/')) {
-                  fileType = 'video';
-                } else if (response.fileType.startsWith('audio/')) {
-                  fileType = 'video'; // Treat audio as video for now
-                } else if (response.fileType.includes('pdf')) {
-                  fileType = 'document';
-                }
-              }
+        // Step 3: Confirm upload and save to database
+        const result = await fileService.confirmUpload(uploadId, fileData);
 
-              return {
-                id: response._id,
-                name: response.fileName,
-                type: fileType,
-                size: response.size,
-                uploadedAt: new Date(response.uploadedAt),
-                owner: '', // Will be set by parent component
-                parentId: response.parentId,
-                isFolder: response.isFolder || false
-              };
-            });
+        // Map FileUploadResponse to StorageFile
+        let fileType: FileType = 'file' as FileType;
+        if (result.fileType && typeof result.fileType === 'string') {
+          if (result.fileType.startsWith('image/')) {
+            fileType = 'image';
+          } else if (result.fileType.startsWith('video/')) {
+            fileType = 'video';
+          } else if (result.fileType.startsWith('audio/')) {
+            fileType = 'video'; // Treat audio as video for now
+          } else if (result.fileType.includes('pdf')) {
+            fileType = 'document';
+          }
+        }
 
-            if (newFiles.length > 0) {
-              onUploadSuccess(newFiles);
-              setShowToast(true);
-              setFiles([]);
-            } else {
-              // Handle all failed
-              console.error("All uploads failed");
-            }
-          })
-          .catch(err => console.error("Upload error", err));
+        return {
+          id: result._id,
+          name: result.fileName,
+          type: fileType,
+          size: result.size,
+          uploadedAt: new Date(result.uploadedAt),
+          owner: '', // Will be set by parent component
+          parentId: result.parentId,
+          isFolder: result.isFolder || false
+        };
 
-        setUploading(false);
-        // Toast is shown in success block now
-
-      } else {
-        setProgress(currentProgress);
+      } catch (error) {
+        console.error(`Upload failed for ${file.name}:`, error);
+        throw error;
       }
-    }, 100);
+    });
+
+    try {
+      const results = await Promise.allSettled(uploadPromises);
+      const successful = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value as StorageFile);
+
+      if (successful.length > 0) {
+        onUploadSuccess(successful);
+        setShowToast(true);
+        setFiles([]);
+      } else {
+        console.error("All uploads failed");
+      }
+    } catch (error) {
+      console.error("Upload batch error:", error);
+    } finally {
+      setUploading(false);
+      setProgress({});
+    }
   };
 
   const removeFile = (index: number) => {
@@ -287,22 +283,39 @@ const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
         </div>
       )}
       {uploading && (
-        <Card className="p-8 border-slate-200 shadow-2xl animate-in fade-in zoom-in-95">
-          <div className="space-y-5">
-            <div className="flex justify-between items-end">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">In Transit</p>
-                <h4 className="text-lg font-bold text-slate-900">Synchronizing Vault</h4>
+        <div className="space-y-4">
+          {files.map((file, index) => (
+            <Card key={index} className="p-6 border-slate-200 shadow-xl animate-in fade-in zoom-in-95">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-50 rounded-lg">
+                      <IconFile className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 truncate max-w-xs">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-lg font-bold text-slate-900">
+                    {progress[index] || 0}%
+                  </span>
+                </div>
+                <Progress value={progress[index] || 0} className="h-2" />
               </div>
-              <span className="text-2xl font-black text-slate-900">{progress}%</span>
-            </div>
-            <Progress value={progress} className="h-3" />
+            </Card>
+          ))}
+          <div className="text-center">
             <div className="flex items-center justify-center gap-2 text-xs text-slate-400 font-medium">
               <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" />
-              Writing bits to decentralized storage nodes...
+              Uploading to secure cloud storage...
             </div>
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );
