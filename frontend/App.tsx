@@ -9,6 +9,7 @@ import Upload from './pages/Upload';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
+import NotFound from './pages/NotFound';
 import Sidebar from './components/layout/Sidebar';
 import Navbar from './components/layout/Navbar';
 import { ViewType, StorageFile, FileType } from './types';
@@ -405,7 +406,7 @@ const App: React.FC = () => {
           </div>
         } />
       </Route>
-      <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 };

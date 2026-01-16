@@ -197,7 +197,7 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, title, onLogout, files
                 alt="Profile"
                 className="w-7 h-7 rounded-full border border-slate-200"
               />
-              <span className="hidden sm:block text-sm font-semibold text-slate-700">John Doe</span>
+              <span className="hidden sm:block text-sm font-semibold text-slate-700">{user?.name || 'User'}</span>
             </button>
 
             {isDropdownOpen && (
