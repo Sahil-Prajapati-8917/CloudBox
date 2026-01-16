@@ -7,9 +7,17 @@ interface CreateFolderData {
 }
 
 const fileService = {
-    getFiles: async (parentId?: string): Promise<StorageFile[]> => {
+    getFiles: async (parentIdOrParams?: string | { parentId?: string; search?: string }): Promise<StorageFile[]> => {
         try {
-            const response = await api.get('/files', { params: { parentId } });
+            let params: any = {};
+
+            if (typeof parentIdOrParams === 'string') {
+                params.parentId = parentIdOrParams;
+            } else if (typeof parentIdOrParams === 'object') {
+                params = parentIdOrParams;
+            }
+
+            const response = await api.get('/files', { params });
             return response.data;
         } catch (error: any) {
             console.error('Get files error:', error);

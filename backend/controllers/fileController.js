@@ -193,12 +193,17 @@ const createFolder = async (req, res) => {
 // @access  Private
 const getFiles = async (req, res) => {
     try {
-        const { parentId } = req.query;
-        // Filter by parentId (null for root)
-        const filter = {
-            userId: req.user.id,
-            parentId: parentId || null
-        };
+        const { parentId, search } = req.query;
+
+        let filter = { userId: req.user.id };
+
+        if (search) {
+            // Global search: ignore parentId, look for partial matches case-insensitive
+            filter.fileName = { $regex: search, $options: 'i' };
+        } else {
+            // Standard browsing: filter by parentId (null for root)
+            filter.parentId = parentId || null;
+        }
 
         const files = await File.find(filter).sort({ isFolder: -1, uploadedAt: -1 });
 

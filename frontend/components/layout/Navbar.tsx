@@ -1,11 +1,11 @@
-
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
 import { StorageFile } from '../../types';
 import { Toast } from '../ui/Toast';
-import { IconBell, IconSearch, IconMenu, IconFile, IconFolder } from '../ui/Icons';
+import { IconBell, IconSearch, IconMenu } from '../ui/Icons';
+import GlobalSearch from './GlobalSearch';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -19,8 +19,7 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, title, onLogout, files
   const { user } = useContext(AuthContext)!;
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const navigate = useNavigate();
 
@@ -29,10 +28,6 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, title, onLogout, files
     { id: 2, text: 'Storage usage reached 80%', time: '1h ago', unread: true },
     { id: 3, text: 'Backup completed successfully', time: '5h ago', unread: false },
   ];
-
-  const searchResults = searchQuery
-    ? files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 5)
-    : [];
 
   return (
     <header className="sticky top-0 z-30 h-14 sm:h-16 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 px-3 sm:px-4 md:px-6">
@@ -61,7 +56,7 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, title, onLogout, files
             variant="ghost"
             size="icon"
             className="md:hidden h-8 w-8 text-slate-500"
-            onClick={() => setIsSearchOpen(true)}
+            onClick={() => setIsMobileSearchOpen(true)}
           >
             <IconSearch className="w-5 h-5" />
           </Button>
@@ -73,71 +68,32 @@ const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, title, onLogout, files
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="relative group">
-            <div
-              className={`items-center w-full md:w-64 h-9 px-3 bg-slate-100/50 hover:bg-slate-100 border border-transparent hover:border-slate-200 rounded-md transition-all cursor-pointer ${isSearchOpen ? 'flex fixed top-0 left-0 right-0 h-16 bg-white z-[60] px-4 border-b border-slate-200 rounded-none' : 'hidden md:flex'}`}
-              onClick={() => setIsSearchOpen(true)}
-            >
-              <IconSearch className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
-              <input
-                className="ml-2 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-full"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setIsSearchOpen(true)}
+        {/* Mobile Search Overlay */}
+        {isMobileSearchOpen && (
+          <div className="absolute inset-0 z-50 bg-white px-4 flex items-center border-b border-slate-200 md:hidden">
+            <div className="flex-1">
+              <GlobalSearch
+                isMobile={true}
+                onClose={() => setIsMobileSearchOpen(false)}
+                onFileSelect={(file) => {
+                  onFileSelect(file);
+                  setIsMobileSearchOpen(false);
+                }}
               />
-              <kbd className="ml-auto hidden lg:inline-flex h-5 select-none items-center gap-1 rounded border bg-white px-1.5 font-mono text-[10px] font-medium text-slate-500">
-                <span className="text-xs">⌘</span>K
-              </kbd>
-              {isSearchOpen && (
-                <button
-                  className="ml-auto md:hidden p-2 text-slate-500"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsSearchOpen(false);
-                  }}
-                >
-                  <span className="text-sm font-bold">Cancel</span>
-                </button>
-              )}
             </div>
+            <button
+              className="ml-3 p-2 text-slate-500 text-sm font-bold"
+              onClick={() => setIsMobileSearchOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
-            {isSearchOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setIsSearchOpen(false)}></div>
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg border border-slate-200 shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="p-2">
-                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Global Results</div>
-                    {searchResults.length > 0 ? (
-                      searchResults.map((res) => (
-                        <button
-                          key={res.id}
-                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-3 group/item"
-                          onClick={() => {
-                            onFileSelect(res);
-                            setIsSearchOpen(false);
-                            setSearchQuery('');
-                          }}
-                        >
-                          <div className="p-1.5 bg-slate-50 rounded text-slate-400 group-hover/item:text-slate-900 transition-colors">
-                            {res.type === 'folder' ? <IconFolder className="w-3.5 h-3.5 text-amber-500" /> : <IconFile className="w-3.5 h-3.5" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-900 truncate">{res.name}</p>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">{res.type} • {res.size}</p>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="px-3 py-4 text-center">
-                        <p className="text-xs text-slate-400 italic">{searchQuery ? 'No matches found' : 'Type to search files across all folders...'}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
+        <div className="flex items-center gap-4">
+          {/* Desktop Search */}
+          <div className="hidden md:block">
+            <GlobalSearch onFileSelect={onFileSelect} />
           </div>
 
           <div className="flex items-center gap-1.5 relative">
