@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { StorageFile } from '../types';
@@ -40,7 +40,7 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   const [folders, setFolders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [searchTerm, setSearchTerm] = useState('');
+
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
@@ -108,11 +108,10 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
 
   // Files prop already contains both folders and files (folders have isFolder: true)
   const filteredFiles = files.filter(f => {
-    const matchesSearch = f.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = typeFilter === 'all' ||
       (typeFilter === 'folder' && f.isFolder) ||
       (!f.isFolder && f.type === typeFilter);
-    return matchesSearch && matchesType;
+    return matchesType;
   });
 
   // Since we don't have full recursive breadcrumbs from backend yet without a path, 
@@ -246,23 +245,43 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
     setUploadProgress(0);
 
     try {
-      // const token = localStorage.getItem('token') || ''; // token handled by interceptor
-      const uploadPromises = uploadFiles.map(f => {
-        const formData = new FormData();
-        formData.append('file', f);
-        if (currentFolderId) formData.append('parentId', currentFolderId);
-        return fileService.uploadFile(formData);
+      const uploadPromises = uploadFiles.map(async (file, index) => {
+        try {
+          // Step 1: Prepare upload - get signed URL
+          const metadata = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            parentId: currentFolderId
+          };
+
+          const { signedUrl, fileData, uploadId } = await fileService.prepareUpload(metadata);
+
+          // Step 2: Upload directly to S3 (no progress tracking for modal)
+          await fileService.uploadToS3(signedUrl, file);
+
+          // Step 3: Confirm upload and save to database
+          const result = await fileService.confirmUpload(uploadId, fileData);
+          return result;
+
+        } catch (error) {
+          console.error(`Upload failed for ${file.name}:`, error);
+          throw error;
+        }
       });
 
-      const responses = await Promise.all(uploadPromises);
-      // Responses are File objects from backend
-      const newFiles = responses;
+      const results = await Promise.allSettled(uploadPromises);
+      const successful = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value);
 
-      if (newFiles.length > 0) {
-        setToast({ message: `${newFiles.length} files uploaded successfully!`, type: 'success' });
+      if (successful.length > 0) {
+        setToast({ message: `${successful.length} files uploaded successfully!`, type: 'success' });
         setUploadFiles([]);
         setIsUploadOpen(false);
         if (onRefresh) onRefresh();
+      } else {
+        setToast({ message: 'All uploads failed', type: 'error' });
       }
     } catch (error) {
       console.error('Upload error:', error);
@@ -451,133 +470,118 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
         </div>
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Search Bar - Full width on mobile */}
-          <div className="relative flex-1 sm:flex-initial sm:w-64">
-            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <Input
-              placeholder="Search files..."
-              className="pl-9 h-9 text-sm border-slate-200 focus:ring-slate-900"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            />
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Bulk Actions */}
+          {selectedFiles.length > 0 && (
+            <div className="flex items-center gap-2 mr-4">
+              <span className="text-sm font-medium text-slate-700">
+                {selectedFiles.length} selected
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkDownload}
+                className="h-9 px-3"
+              >
+                <IconDownloadCloud className="w-4 h-4 mr-2" />
+                Download
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkDelete}
+                className="h-9 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <IconTrash className="w-4 h-4 mr-2" />
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedFiles([])}
+                className="h-9 px-3"
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
+          {/* Filter */}
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-9 capitalize ${typeFilter !== 'all' ? 'bg-slate-900 text-white' : ''}`}
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
+            >
+              {typeFilter === 'all' ? 'Filter' : typeFilter}
+            </Button>
+            {isFilterOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsFilterOpen(false)}></div>
+                <div className="absolute right-0 top-full mt-2 w-40 bg-white rounded-lg border border-slate-200 shadow-xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  {fileTypes.map(type => (
+                    <button
+                      key={type}
+                      className={`w-full text-left px-4 py-2 text-sm capitalize hover:bg-slate-50 ${typeFilter === type ? 'font-bold text-slate-900 bg-slate-50/50' : 'text-slate-600'}`}
+                      onClick={() => { setTypeFilter(type); setIsFilterOpen(false); }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Controls Row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Bulk Actions */}
-            {selectedFiles.length > 0 && (
-              <div className="flex items-center gap-2 mr-4">
-                <span className="text-sm font-medium text-slate-700">
-                  {selectedFiles.length} selected
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkDownload}
-                  className="h-9 px-3"
-                >
-                  <IconDownloadCloud className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  className="h-9 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  <IconTrash className="w-4 h-4 mr-2" />
-                  Delete
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedFiles([])}
-                  className="h-9 px-3"
-                >
-                  Clear
-                </Button>
-              </div>
-            )}
+          {/* View Toggle */}
+          <div className="flex items-center gap-1 border-r border-slate-200 pr-2 mr-2">
+            <Button
+              variant={viewMode === 'list' ? 'primary' : 'ghost'}
+              size="sm"
+              className="h-9 w-9 p-0"
+              onClick={() => setViewMode('list')}
+            >
+              <IconMenu className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'grid' ? 'primary' : 'ghost'}
+              size="sm"
+              className="h-9 w-9 p-0"
+              onClick={() => setViewMode('grid')}
+            >
+              <IconLayoutDashboard className="w-4 h-4" />
+            </Button>
+          </div>
 
-            {/* Filter */}
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                className={`h-9 capitalize ${typeFilter !== 'all' ? 'bg-slate-900 text-white' : ''}`}
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-              >
-                {typeFilter === 'all' ? 'Filter' : typeFilter}
-              </Button>
-              {isFilterOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsFilterOpen(false)}></div>
-                  <div className="absolute right-0 top-full mt-2 w-40 bg-white rounded-lg border border-slate-200 shadow-xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                    {fileTypes.map(type => (
-                      <button
-                        key={type}
-                        className={`w-full text-left px-4 py-2 text-sm capitalize hover:bg-slate-50 ${typeFilter === type ? 'font-bold text-slate-900 bg-slate-50/50' : 'text-slate-600'}`}
-                        onClick={() => { setTypeFilter(type); setIsFilterOpen(false); }}
-                      >
-                        {type}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* View Toggle */}
-            <div className="flex items-center gap-1 border-r border-slate-200 pr-2 mr-2">
-              <Button
-                variant={viewMode === 'list' ? 'primary' : 'ghost'}
-                size="sm"
-                className="h-9 w-9 p-0"
-                onClick={() => setViewMode('list')}
-              >
-                <IconMenu className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={viewMode === 'grid' ? 'primary' : 'ghost'}
-                size="sm"
-                className="h-9 w-9 p-0"
-                onClick={() => setViewMode('grid')}
-              >
-                <IconLayoutDashboard className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-3 sm:px-4"
-                onClick={() => fetchData()}
-              >
-                <span className="hidden sm:inline">Refresh</span>
-                <IconMenu className="w-4 h-4 sm:hidden" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-3 sm:px-4"
-                onClick={() => setIsUploadOpen(!isUploadOpen)}
-              >
-                <IconUpload className="w-4 h-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">Upload</span>
-              </Button>
-              <Button
-                size="sm"
-                className="h-9 px-3 sm:px-4"
-                onClick={() => setIsNewFolderModalOpen(true)}
-              >
-                <span className="hidden sm:inline">New Folder</span>
-                <IconFolder className="w-4 h-4 sm:hidden" />
-              </Button>
-            </div>
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3 sm:px-4"
+              onClick={() => fetchData()}
+            >
+              <span className="hidden sm:inline">Refresh</span>
+              <IconMenu className="w-4 h-4 sm:hidden" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3 sm:px-4"
+              onClick={() => setIsUploadOpen(!isUploadOpen)}
+            >
+              <IconUpload className="w-4 h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Upload</span>
+            </Button>
+            <Button
+              size="sm"
+              className="h-9 px-3 sm:px-4"
+              onClick={() => setIsNewFolderModalOpen(true)}
+            >
+              <span className="hidden sm:inline">New Folder</span>
+              <IconFolder className="w-4 h-4 sm:hidden" />
+            </Button>
           </div>
         </div>
       </div>
