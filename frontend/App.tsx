@@ -192,7 +192,9 @@ const App: React.FC = () => {
       <Route path="/account" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Account />
       } />
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />
+      } />
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard" element={
           <div className="flex min-h-screen bg-white">
