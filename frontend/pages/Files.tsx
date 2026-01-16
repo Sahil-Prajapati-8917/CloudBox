@@ -57,6 +57,8 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1);
 
   // Use propFiles instead of fetching
   const files = propFiles || [];
@@ -69,7 +71,6 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
     if (onRefresh) {
       try {
         await onRefresh(currentFolderId);
-        setToast({ message: 'Files refreshed successfully', type: 'success' });
       } catch (error) {
         console.error('Failed to refresh files:', error);
         setToast({ message: 'Failed to refresh files', type: 'error' });
@@ -292,6 +293,89 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
     setPreviewFile(previewFiles[newIndex]);
   };
 
+  const handleFileSelect = (fileId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+
+    if (event.ctrlKey || event.metaKey) {
+      // Multi-select with Ctrl/Cmd
+      setSelectedFiles(prev =>
+        prev.includes(fileId)
+          ? prev.filter(id => id !== fileId)
+          : [...prev, fileId]
+      );
+    } else if (event.shiftKey && lastSelectedIndex !== -1) {
+      // Range select with Shift
+      const currentIndex = filteredFiles.findIndex(f => (f._id || f.id) === fileId);
+      const startIndex = Math.min(lastSelectedIndex, currentIndex);
+      const endIndex = Math.max(lastSelectedIndex, currentIndex);
+
+      const rangeIds = filteredFiles.slice(startIndex, endIndex + 1).map(f => f._id || f.id);
+      setSelectedFiles(prev => {
+        const newSelection = new Set(prev);
+        rangeIds.forEach(id => newSelection.add(id));
+        return Array.from(newSelection);
+      });
+    } else {
+      // Single select
+      setSelectedFiles(prev => prev.includes(fileId) && prev.length === 1 ? [] : [fileId]);
+    }
+
+    setLastSelectedIndex(filteredFiles.findIndex(f => (f._id || f.id) === fileId));
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedFiles.length === 0) return;
+
+    const confirmMessage = `Are you sure you want to delete ${selectedFiles.length} selected file(s)? This action cannot be undone.`;
+    if (!window.confirm(confirmMessage)) return;
+
+    setActionLoading(prev => ({ ...prev, 'bulk-delete': true }));
+
+    try {
+      const deletePromises = selectedFiles.map(id => fileService.deleteFile(id));
+      await Promise.all(deletePromises);
+
+      setToast({ message: `Successfully deleted ${selectedFiles.length} file(s)`, type: 'success' });
+      setSelectedFiles([]);
+
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      setToast({ message: 'Failed to delete some files', type: 'error' });
+    } finally {
+      setActionLoading(prev => ({ ...prev, 'bulk-delete': false }));
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    if (selectedFiles.length === 0) return;
+
+    try {
+      const selectedFileObjects = files.filter(f => selectedFiles.includes(f._id || f.id));
+
+      for (const file of selectedFileObjects) {
+        if (file.url) {
+          // Create a temporary link element and trigger download
+          const link = document.createElement('a');
+          link.href = file.url;
+          link.download = file.name;
+          link.target = '_blank';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          // Small delay between downloads to avoid browser blocking
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      setToast({ message: `Downloading ${selectedFiles.length} file(s)`, type: 'success' });
+    } catch (error) {
+      console.error('Bulk download error:', error);
+      setToast({ message: 'Failed to download files', type: 'error' });
+    }
+  };
+
   const fileTypes = ['all', 'folder', 'pdf', 'image', 'video', 'document', 'archive'];
 
   return (
@@ -360,6 +444,41 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
 
           {/* Controls Row */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Bulk Actions */}
+            {selectedFiles.length > 0 && (
+              <div className="flex items-center gap-2 mr-4">
+                <span className="text-sm font-medium text-slate-700">
+                  {selectedFiles.length} selected
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkDownload}
+                  className="h-9 px-3"
+                >
+                  <IconDownloadCloud className="w-4 h-4 mr-2" />
+                  Download
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkDelete}
+                  className="h-9 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <IconTrash className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedFiles([])}
+                  className="h-9 px-3"
+                >
+                  Clear
+                </Button>
+              </div>
+            )}
+
             {/* Filter */}
             <div className="relative">
               <Button
@@ -576,117 +695,120 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
               <div className="text-center text-slate-400 py-12">No files found in this folder.</div>
             ) : (
               <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3 sm:gap-4">
-                {filteredFiles.map((file) => (
-                  <div
-                    key={file._id || file.id}
-                    className="group relative bg-white border border-slate-200 rounded-lg overflow-hidden hover:shadow-lg transition-all cursor-pointer"
-                    onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('button')) return;
-                      if (file.type === 'folder') {
-                        navigate(`/files/${file._id || file.id}`);
-                      } else {
-                        handleFilePreview(file);
-                      }
-                    }}
-                  >
-                    {/* Thumbnail */}
-                    <div className="aspect-square bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
-                      {file.type === 'folder' ? (
-                        <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center">
-                          <IconFolder className="w-10 h-10 text-amber-600" />
-                        </div>
-                      ) : file.type === 'image' && file.url ? (
-                        <img
-                          src={file.url}
-                          alt={file.name}
-                          className="w-full h-full object-cover rounded-lg"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            e.currentTarget.nextElementSibling!.classList.remove('hidden');
+                {filteredFiles.map((file, index) => {
+                  const fileId = file._id || file.id;
+                  const isSelected = selectedFiles.includes(fileId);
+
+                  return (
+                    <div
+                      key={fileId}
+                      className={`group relative bg-white border rounded-lg overflow-hidden transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50 shadow-lg'
+                          : 'border-slate-200 hover:shadow-lg'
+                      }`}
+                      onClick={(e) => {
+                        // If clicking on checkbox, let it handle selection
+                        if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                        // Otherwise, open the file/folder
+                        if (file.type === 'folder') {
+                          navigate(`/files/${fileId}`);
+                        } else {
+                          handleFilePreview(file);
+                        }
+                      }}
+                    >
+                      {/* Selection Checkbox */}
+                      <div className="absolute top-2 left-2 z-10">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const fileId = file._id || file.id;
+                            setSelectedFiles(prev =>
+                              prev.includes(fileId)
+                                ? prev.filter(id => id !== fileId)
+                                : [...prev, fileId]
+                            );
                           }}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
-                      ) : file.type === 'video' && file.url ? (
-                        <div className="w-full h-full bg-slate-200 rounded-lg flex items-center justify-center relative">
-                          <video
+                      </div>
+
+                      {/* Thumbnail */}
+                      <div className="aspect-square bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+                        {file.type === 'folder' ? (
+                          <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center">
+                            <IconFolder className="w-10 h-10 text-amber-600" />
+                          </div>
+                        ) : file.type === 'image' && file.url ? (
+                          <img
                             src={file.url}
+                            alt={file.name}
                             className="w-full h-full object-cover rounded-lg"
-                            muted
-                            onLoadedData={(e) => {
-                              // Create thumbnail from video
-                              const video = e.currentTarget;
-                              const canvas = document.createElement('canvas');
-                              canvas.width = video.videoWidth;
-                              canvas.height = video.videoHeight;
-                              const ctx = canvas.getContext('2d');
-                              if (ctx) {
-                                ctx.drawImage(video, 0, 0);
-                                const thumbnailUrl = canvas.toDataURL();
-                                video.style.display = 'none';
-                                const img = video.parentElement!.querySelector('.video-thumb') as HTMLImageElement;
-                                if (img) {
-                                  img.src = thumbnailUrl;
-                                  img.style.display = 'block';
-                                }
-                              }
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextElementSibling!.classList.remove('hidden');
                             }}
                           />
-                          <img
-                            src=""
-                            alt={file.name}
-                            className="video-thumb w-full h-full object-cover rounded-lg hidden"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
-                              <div className="w-0 h-0 border-l-3 border-l-white border-t-2 border-t-transparent border-b-2 border-b-transparent ml-0.5"></div>
+                        ) : file.type === 'video' && file.url ? (
+                          <div className="w-full h-full bg-slate-200 rounded-lg flex items-center justify-center relative">
+                            <video
+                              src={file.url}
+                              className="w-full h-full object-cover rounded-lg"
+                              muted
+                              onLoadedData={(e) => {
+                                // Create thumbnail from video
+                                const video = e.currentTarget;
+                                const canvas = document.createElement('canvas');
+                                canvas.width = video.videoWidth;
+                                canvas.height = video.videoHeight;
+                                const ctx = canvas.getContext('2d');
+                                if (ctx) {
+                                  ctx.drawImage(video, 0, 0);
+                                  const thumbnailUrl = canvas.toDataURL();
+                                  video.style.display = 'none';
+                                  const img = video.parentElement!.querySelector('.video-thumb') as HTMLImageElement;
+                                  if (img) {
+                                    img.src = thumbnailUrl;
+                                    img.style.display = 'block';
+                                  }
+                                }
+                              }}
+                            />
+                            <img
+                              src=""
+                              alt={file.name}
+                              className="video-thumb w-full h-full object-cover rounded-lg hidden"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
+                                <div className="w-0 h-0 border-l-3 border-l-white border-t-2 border-t-transparent border-b-2 border-b-transparent ml-0.5"></div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ) : null}
-                      {/* Fallback icon */}
-                      <div className={`${file.type === 'folder' || ((file.type === 'image' || file.type === 'video') && file.url) ? 'hidden' : ''}`}>
-                        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center">
-                          <IconFile className="w-10 h-10 text-slate-500" />
+                        ) : null}
+                        {/* Fallback icon */}
+                        <div className={`${file.type === 'folder' || ((file.type === 'image' || file.type === 'video') && file.url) ? 'hidden' : ''}`}>
+                          <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center">
+                            <IconFile className="w-10 h-10 text-slate-500" />
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* File Info */}
-                    <div className="p-3">
-                      <h4 className="text-sm font-medium text-slate-900 truncate mb-1">{file.name}</h4>
-                      <p className="text-xs text-slate-500">
-                        {file.type === 'folder' ? 'Folder' : formatBytes(file.size)}
-                      </p>
-                    </div>
+                      {/* File Info */}
+                      <div className="p-3">
+                        <h4 className="text-sm font-medium text-slate-900 truncate mb-1">{file.name}</h4>
+                        <p className="text-xs text-slate-500">
+                          {file.type === 'folder' ? 'Folder' : formatBytes(file.size)}
+                        </p>
+                      </div>
 
-                    {/* Actions Overlay */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 w-8 p-0 bg-white/90 hover:bg-white"
-                        onClick={() => setSelectedFile(file)}
-                      >
-                        <IconEye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 w-8 p-0 bg-white/90 hover:bg-white"
-                        onClick={() => handleDownload(file.name, file.url)}
-                      >
-                        <IconDownloadCloud className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 w-8 p-0 bg-red-500/90 hover:bg-red-500"
-                        onClick={() => handleDelete(file._id || file.id, file.isFolder ? 'folder' : 'file', file.name)}
-                      >
-                        <IconTrash className="w-4 h-4" />
-                      </Button>
+
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
