@@ -20,17 +20,31 @@ import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react
 
 const ProtectedRoute: React.FC = () => {
   const { user, isLoading } = useContext(AuthContext)!;
-  if (isLoading) return <div>Loading...</div>;
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
+  console.log('ProtectedRoute check:', { user: !!user, isLoading });
+
+  if (isLoading) {
+    console.log('ProtectedRoute: Still loading, showing loading screen');
+    return <div>Loading...</div>;
+  }
+
+  if (!user) {
+    console.log('ProtectedRoute: No user found, redirecting to login');
+    return <Navigate to="/login" replace />;
+  }
+
+  console.log('ProtectedRoute: User authenticated, allowing access');
+  return <Outlet />;
 };
 
 const App: React.FC = () => {
   const { user, logout } = useContext(AuthContext)!;
-  const isAuthenticated = !!user;
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [files, setFiles] = useState<StorageFile[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isAuthenticated = !!user;
+  console.log('App render:', { user: !!user, isAuthenticated, currentPath: location.pathname });
 
   // Fetch files when user is authenticated
   useEffect(() => {

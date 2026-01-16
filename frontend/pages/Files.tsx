@@ -29,7 +29,7 @@ interface FilesProps {
   files?: StorageFile[];
   onDelete?: (id: string) => void;
   onAddFolder?: (name: string, parentId?: string) => void;
-  onRefresh?: () => void;
+  onRefresh?: (folderId?: string) => void | Promise<void>;
 }
 
 const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, onRefresh }) => {
@@ -66,7 +66,15 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   // }, [currentFolderId]);
 
   const fetchData = async () => {
-    if (onRefresh) onRefresh();
+    if (onRefresh) {
+      try {
+        await onRefresh(currentFolderId);
+        setToast({ message: 'Files refreshed successfully', type: 'success' });
+      } catch (error) {
+        console.error('Failed to refresh files:', error);
+        setToast({ message: 'Failed to refresh files', type: 'error' });
+      }
+    }
   };
 
   //   const fetchData = async () => {
