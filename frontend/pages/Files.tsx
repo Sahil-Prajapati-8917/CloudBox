@@ -625,60 +625,86 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
               <table className="w-full text-sm text-left">
                 <thead className="text-[11px] font-bold text-slate-500 uppercase tracking-widest bg-slate-50/50 border-b border-slate-200">
                   <tr>
+                    <th className="px-6 py-3 w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.length === filteredFiles.length && filteredFiles.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedFiles(filteredFiles.map(f => f._id || f.id));
+                          } else {
+                            setSelectedFiles([]);
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </th>
                     <th className="px-6 py-3">Name</th>
                     <th className="px-6 py-3">Type</th>
                     <th className="px-6 py-3">Size</th>
                     <th className="px-6 py-3">Modified</th>
-                    <th className="px-6 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {loading ? (
-                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">Loading files...</td></tr>
-                  ) : filteredFiles.map((file) => (
-                    <tr
-                      key={file._id || file.id}
-                      className="group hover:bg-slate-50 transition-colors cursor-pointer"
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest('button')) return;
-                        if (file.type === 'folder') {
-                          navigate(`/files/${file._id || file.id}`);
-                        } else {
-                          handleFilePreview(file);
-                        }
-                      }}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="text-slate-400">
-                            {file.type === 'folder' ? <IconFolder className="w-4 h-4 text-amber-500" /> : <IconFile className="w-4 h-4" />}
+                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-500">Loading files...</td></tr>
+                  ) : filteredFiles.map((file) => {
+                    const fileId = file._id || file.id;
+                    const isSelected = selectedFiles.includes(fileId);
+
+                    return (
+                      <tr
+                        key={fileId}
+                        className={`transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-50 hover:bg-blue-100'
+                            : 'hover:bg-slate-50'
+                        }`}
+                        onClick={(e) => {
+                          // If clicking on checkbox, let it handle selection
+                          if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                          // Otherwise, open the file/folder
+                          if (file.type === 'folder') {
+                            navigate(`/files/${fileId}`);
+                          } else {
+                            handleFilePreview(file);
+                          }
+                        }}
+                      >
+                        <td className="px-6 py-4">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedFiles(prev =>
+                                prev.includes(fileId)
+                                  ? prev.filter(id => id !== fileId)
+                                  : [...prev, fileId]
+                              );
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="text-slate-400">
+                              {file.type === 'folder' ? <IconFolder className="w-4 h-4 text-amber-500" /> : <IconFile className="w-4 h-4" />}
+                            </div>
+                            <span className="font-semibold text-slate-700 truncate">{file.name}</span>
                           </div>
-                          <span className="font-semibold text-slate-700 truncate">{file.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-tighter">{file.type}</td>
-                      <td className="px-6 py-4 text-slate-500">{file.type === 'folder' ? '--' : formatBytes(file.size)}</td>
-                      <td className="px-6 py-4 text-slate-500">
-                        {file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString() : 'Just now'}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="icon" onClick={() => setSelectedFile(file)} className="h-8 w-8 text-slate-400 hover:text-slate-900">
-                            <IconEye className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDownload(file.name, file.url)} className="h-8 w-8 text-slate-400 hover:text-slate-900">
-                            <IconDownloadCloud className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(file._id || file.id, file.isFolder ? 'folder' : 'file', file.name)} className="h-8 w-8 text-slate-400 hover:text-red-600">
-                            <IconTrash className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-tighter">{file.type}</td>
+                        <td className="px-6 py-4 text-slate-500">{file.type === 'folder' ? '--' : formatBytes(file.size)}</td>
+                        <td className="px-6 py-4 text-slate-500">
+                          {file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString() : 'Just now'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {!loading && filteredFiles.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                         No files found in this folder.
                       </td>
                     </tr>
