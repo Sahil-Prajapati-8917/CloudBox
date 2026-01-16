@@ -10,14 +10,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const checkAuthStatus = useCallback(async () => {
         try {
-            // Always clear any existing auth state on app start
-            // Users must login fresh each time they enter the site
-            console.log('Clearing authentication state on app start');
+            // Check if there's a stored token
+            const token = authService.getCurrentUser();
+            if (token) {
+                // Validate token by fetching user profile
+                const userData = await authService.getUserProfile();
+                setUser({ ...userData, token });
+                console.log('User authenticated from stored token');
+            } else {
+                setUser(null);
+                console.log('No stored token found');
+            }
+        } catch (error) {
+            console.error('Token validation failed:', error);
+            // If token is invalid, clear it
             authService.logout();
             setUser(null);
-            console.log('Authentication state cleared');
-        } catch (error) {
-            console.error('Auth cleanup failed:', error);
         } finally {
             setIsLoading(false);
         }

@@ -59,6 +59,8 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [dragCounter, setDragCounter] = useState(0);
 
   // Use propFiles instead of fetching
   const files = propFiles || [];
@@ -204,16 +206,33 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setDragCounter(prev => prev + 1);
+    if (dragCounter === 0) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragCounter(prev => prev - 1);
+    if (dragCounter === 1) {
+      setIsDragOver(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
+    setIsDragOver(false);
+    setDragCounter(0);
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
       setUploadFiles(prev => [...prev, ...files]);
       setIsUploadOpen(true);
+      setToast({ message: `${files.length} file(s) ready for upload`, type: 'success' });
     }
   };
 
@@ -380,9 +399,12 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
 
   return (
     <div
-      className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500"
+      className={`space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 transition-all duration-300 ${
+        isDragOver ? 'bg-blue-50/50 border-2 border-blue-300 border-dashed rounded-xl' : ''
+      }`}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {toast && (

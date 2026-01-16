@@ -67,6 +67,7 @@ const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
   const [progress, setProgress] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
   const [showToast, setShowToast] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -178,7 +179,37 @@ const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
         </p>
       </div>
 
-      <Card className="p-12 border-2 border-dashed border-slate-200 bg-white/50 backdrop-blur-sm hover:border-slate-400 hover:bg-slate-50/30 transition-all cursor-pointer group">
+      <div
+        className={`relative p-12 border-2 border-dashed rounded-3xl transition-all duration-300 cursor-pointer group ${
+          isDragOver
+            ? 'border-blue-500 bg-blue-50/50 scale-[1.02]'
+            : 'border-slate-200 bg-white/50 backdrop-blur-sm hover:border-slate-400 hover:bg-slate-50/30'
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+
+          const droppedFiles = Array.from(e.dataTransfer.files);
+          if (droppedFiles.length > 0) {
+            setFiles(prev => [...prev, ...droppedFiles]);
+          }
+        }}
+      >
         <label className="flex flex-col items-center justify-center space-y-6 w-full h-full cursor-pointer">
           <input
             type="file"
@@ -187,21 +218,33 @@ const Upload: React.FC<UploadProps> = ({ onUploadSuccess, parentId }) => {
             onChange={handleFileChange}
             disabled={uploading}
           />
-          <div className="w-24 h-24 bg-white rounded-3xl shadow-xl border border-slate-100 flex items-center justify-center text-slate-300 group-hover:text-slate-900 group-hover:scale-105 transition-all">
+          <div className={`w-24 h-24 bg-white rounded-3xl shadow-xl border border-slate-100 flex items-center justify-center transition-all ${
+            isDragOver
+              ? 'text-blue-600 scale-110'
+              : 'text-slate-300 group-hover:text-slate-900 group-hover:scale-105'
+          }`}>
             <IconUpload className="w-12 h-12" />
           </div>
 
           <div className="text-center">
-            <p className="text-xl font-bold text-slate-900">Push to Cloud</p>
-            <p className="text-sm text-slate-400 mt-1 font-medium">Click or drag files here to start upload</p>
+            <p className="text-xl font-bold text-slate-900">
+              {isDragOver ? 'Drop files here' : 'Push to Cloud'}
+            </p>
+            <p className="text-sm text-slate-400 mt-1 font-medium">
+              {isDragOver ? 'Release to add files' : 'Click or drag files here to start upload'}
+            </p>
           </div>
 
-          <div className="flex gap-2 items-center text-xs font-bold text-slate-400 bg-white px-4 py-2 rounded-full border border-slate-100 shadow-sm">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+          <div className={`flex gap-2 items-center text-xs font-bold bg-white px-4 py-2 rounded-full border border-slate-100 shadow-sm transition-all ${
+            isDragOver ? 'text-blue-600 border-blue-200 bg-blue-50/50' : 'text-slate-400'
+          }`}>
+            <span className={`w-2 h-2 rounded-full animate-pulse ${
+              isDragOver ? 'bg-blue-500' : 'bg-emerald-400'
+            }`} />
             MAX 500MB PER FILE
           </div>
         </label>
-      </Card>
+      </div>
 
       {files.length > 0 && (
         <div className="space-y-4 animate-in slide-in-from-top-4 duration-300">
