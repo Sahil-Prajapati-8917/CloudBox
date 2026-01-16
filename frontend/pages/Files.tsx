@@ -182,6 +182,29 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
       setUploadFiles(prev => [...prev, ...newFiles]);
+      // Reset the input value to allow selecting the same files again
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      setUploadFiles(prev => [...prev, ...files]);
+      setIsUploadOpen(true);
     }
   };
 
@@ -264,7 +287,12 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
   const fileTypes = ['all', 'folder', 'pdf', 'image', 'video', 'document', 'archive'];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+    <div
+      className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500"
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDrop={handleDrop}
+    >
       {toast && (
         <Toast
           message={toast.message}
@@ -554,23 +582,63 @@ const Files: React.FC<FilesProps> = ({ files: propFiles, onDelete, onAddFolder, 
                     }}
                   >
                     {/* Thumbnail */}
-                    <div className="aspect-square bg-slate-50 flex items-center justify-center p-4">
+                    <div className="aspect-square bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
                       {file.type === 'folder' ? (
-                        <IconFolder className="w-12 h-12 text-amber-500" />
-                      ) : (file.type === 'image' || file.type === 'video') && file.url ? (
+                        <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center">
+                          <IconFolder className="w-10 h-10 text-amber-600" />
+                        </div>
+                      ) : file.type === 'image' && file.url ? (
                         <img
                           src={file.url}
                           alt={file.name}
-                          className="w-full h-full object-cover rounded"
+                          className="w-full h-full object-cover rounded-lg"
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
                             e.currentTarget.nextElementSibling!.classList.remove('hidden');
                           }}
                         />
+                      ) : file.type === 'video' && file.url ? (
+                        <div className="w-full h-full bg-slate-200 rounded-lg flex items-center justify-center relative">
+                          <video
+                            src={file.url}
+                            className="w-full h-full object-cover rounded-lg"
+                            muted
+                            onLoadedData={(e) => {
+                              // Create thumbnail from video
+                              const video = e.currentTarget;
+                              const canvas = document.createElement('canvas');
+                              canvas.width = video.videoWidth;
+                              canvas.height = video.videoHeight;
+                              const ctx = canvas.getContext('2d');
+                              if (ctx) {
+                                ctx.drawImage(video, 0, 0);
+                                const thumbnailUrl = canvas.toDataURL();
+                                video.style.display = 'none';
+                                const img = video.parentElement!.querySelector('.video-thumb') as HTMLImageElement;
+                                if (img) {
+                                  img.src = thumbnailUrl;
+                                  img.style.display = 'block';
+                                }
+                              }
+                            }}
+                          />
+                          <img
+                            src=""
+                            alt={file.name}
+                            className="video-thumb w-full h-full object-cover rounded-lg hidden"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
+                              <div className="w-0 h-0 border-l-3 border-l-white border-t-2 border-t-transparent border-b-2 border-b-transparent ml-0.5"></div>
+                            </div>
+                          </div>
+                        </div>
                       ) : null}
                       {/* Fallback icon */}
-                      <div className={`${(file.type === 'image' || file.type === 'video') && file.url ? 'hidden' : ''}`}>
-                        <IconFile className="w-12 h-12 text-slate-400" />
+                      <div className={`${file.type === 'folder' || ((file.type === 'image' || file.type === 'video') && file.url) ? 'hidden' : ''}`}>
+                        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center">
+                          <IconFile className="w-10 h-10 text-slate-500" />
+                        </div>
                       </div>
                     </div>
 
