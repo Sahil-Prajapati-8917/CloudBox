@@ -12,10 +12,13 @@ const unlinkFile = util.promisify(fs.unlink);
 
 // File validation helpers
 const ALLOWED_FILE_TYPES = [
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
     'video/mp4', 'video/avi', 'video/mov',
-    'application/pdf', 'text/plain',
-    'application/zip', 'application/x-zip-compressed'
+    'application/pdf', 'text/plain', 'text/html', 'text/csv',
+    'application/zip', 'application/x-zip-compressed',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ];
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
