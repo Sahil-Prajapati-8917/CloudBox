@@ -1,12 +1,12 @@
 # 🌟 CloudBox Frontend - Professional Admin Dashboard
 
-A **production-ready, high-performance** admin dashboard for CloudBox built with modern React technologies. Features a beautiful, responsive UI with smooth animations, real-time updates, and seamless AWS S3 integration.
+A **production-ready, high-performance** admin dashboard for CloudBox built with modern React technologies. Features a beautiful, responsive UI with smooth animations, real-time updates, and seamless AWS S3 integration using signed URLs for secure, direct-to-cloud uploads.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![React](https://img.shields.io/badge/React-19-blue.svg)
-![Vite](https://img.shields.io/badge/Vite-6-purple.svg)
+![React](https://img.shields.io/badge/React-18+-blue.svg)
+![Vite](https://img.shields.io/badge/Vite-5-purple.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)
-![Tailwind](https://img.shields.io/badge/Tailwind-4-cyan.svg)
+![Tailwind](https://img.shields.io/badge/Tailwind-3-cyan.svg)
 
 ## ✨ Key Features
 
@@ -21,13 +21,21 @@ A **production-ready, high-performance** admin dashboard for CloudBox built with
 - **JWT Integration** - Secure login/registration with backend API
 - **Session Management** - Automatic logout and token refresh
 - **Form Validation** - Real-time validation with error handling
+- **Protected Routes** - Automatic redirects for unauthenticated users
+
+### 👤 **User Profile & Settings**
+- **Profile Management** - Update user details and personal preferences
+- **Account Settings** - Dedicated page for application configurations
+- **Responsive Layouts** - Optimized views for profile and account management
 
 ### 📁 **File Management**
-- **Drag & Drop Upload** - Intuitive file uploads with progress tracking
+- **Direct S3 Upload** - Secure, signed URL-based uploads bypassing server processing
+- **Drag & Drop Upload** - Intuitive file uploads with real-time progress tracking
 - **Smart Organization** - Folder-based structure with breadcrumbs navigation
 - **Media Previews** - View images, videos, and documents directly in dashboard
-- **Bulk Operations** - Upload multiple files simultaneously
-- **Secure Access** - Time-limited signed URLs for file retrieval
+- **Bulk Operations** - Upload multiple files simultaneously with individual progress
+- **Secure Access** - Time-limited signed URLs (15min upload, 1hr access) for file retrieval
+- **Type Filtering** - Filter by file types (all, folder, pdf, image, video, document, archive)
 
 ### 📊 **Dashboard Analytics**
 - **Storage Metrics** - Usage statistics and file type distribution
@@ -90,7 +98,7 @@ frontend/
  │   ├── components/
  │   │   ├── layout/    # Sidebar, Header, Layout Wrappers
  │   │   └── ui/        # Atomic components (Buttons, Cards, Modals)
- │   ├── pages/         # Route pages (Dashboard, Login, Files)
+ │   ├── pages/         # Route pages (Dashboard, Login, Files, Profile, Account, Settings, etc.)
  │   ├── services/      # API calls (authService, fileService)
  │   └── App.tsx        # Main Router Setup
 ```
@@ -113,19 +121,72 @@ The output will be in the `dist/` directory.
 
 ## ❓ Troubleshooting
 
-### Common Issues & Fixes
+### Authentication Issues
 
 1.  **"401 Unauthorized" Loop**:
     *   **Symptom**: You are immediately logged out or get 401 errors on every request.
-    *   **Cause**: Axios v1.x compatibility with header setting, or invalid token.
-    *   **Fix**: Ensure `services/api.ts` uses `config.headers.set('Authorization', ...)` instead of dot notation. `App.tsx` handles this by auto-logging out to clear stale tokens.
+    *   **Cause**: Invalid or expired JWT token stored in localStorage.
+    *   **Fix**: Clear localStorage and log in again. Check that `VITE_API_URL` is correctly set.
 
-2.  **"Form Submission Canceled"**:
-    *   **Symptom**: Clicking "Upload" cancels the request or reloads the page.
-    *   **Cause**: Buttons inside forms act as `submit` by default.
-    *   **Fix**: Explicitly add `type="button"` to any action buttons like "Confirm & Upload".
+2.  **Login/Register Not Working**:
+    *   **Symptom**: Forms submit but nothing happens or you get network errors.
+    *   **Cause**: Backend server not running or incorrect API URL.
+    *   **Fix**: Ensure backend is running on port 5000 and `.env` has correct `VITE_API_URL`.
 
-3.  **"All Uploads Failed"**:
-    *   **Symptom**: Files don't appear after upload success.
-    *   **Cause**: Backend returns raw file objects, but frontend expects `{ success: true, data: ... }`.
-    *   **Fix**: Update `Upload.tsx` to handle the direct file object response.
+### File Upload Issues
+
+1.  **Upload Progress Stays at 0%**:
+    *   **Symptom**: Upload appears stuck or shows no progress.
+    *   **Cause**: Signed URL expired (15min limit) or network connectivity issues.
+    *   **Fix**: Refresh the page and try again. Check network tab for CORS errors.
+
+2.  **"All Uploads Failed"**:
+    *   **Symptom**: Files don't appear after upload completes.
+    *   **Cause**: Upload to S3 succeeded but confirmation failed, or network timeout.
+    *   **Fix**: Check browser network tab. Ensure backend is running and MongoDB is accessible.
+
+3.  **Large Files Fail**:
+    *   **Symptom**: Files over 50MB fail or timeout.
+    *   **Cause**: Browser/network limitations or serverless timeout.
+    *   **Fix**: Split large files or upgrade to paid hosting plans with longer timeouts.
+
+### UI & Navigation Issues
+
+1.  **Type Filtering Not Working**:
+    *   **Symptom**: Filter dropdown doesn't change file list.
+    *   **Cause**: Component state not updating properly.
+    *   **Fix**: Refresh the page or check browser console for React errors.
+
+2.  **Images Not Loading**:
+    *   **Symptom**: Thumbnails show broken image icons.
+    *   **Cause**: Signed URLs expired (1hr limit) or S3 permissions.
+    *   **Fix**: Refresh the page to get new signed URLs. Check S3 bucket permissions.
+
+3.  **Drag & Drop Not Working**:
+    *   **Symptom**: Can't drag files onto the upload area.
+    *   **Cause**: Browser compatibility or JavaScript errors.
+    *   **Fix**: Use the click-to-upload method instead. Check browser console.
+
+### Performance Issues
+
+1.  **Slow Initial Load**:
+    *   **Symptom**: App takes long to load initially.
+    *   **Cause**: Render free tier cold starts or large bundle size.
+    *   **Fix**: Wait for backend to wake up (first request is slow) or upgrade hosting.
+
+2.  **Memory Usage High**:
+    *   **Symptom**: Browser becomes slow with many files.
+    *   **Cause**: Large file lists or memory leaks.
+    *   **Fix**: Use pagination or reduce files per page. Clear browser cache.
+
+### Build & Deployment Issues
+
+1.  **Build Fails**:
+    *   **Symptom**: `npm run build` exits with errors.
+    *   **Cause**: TypeScript errors or missing dependencies.
+    *   **Fix**: Run `npm install` and check for TypeScript errors in your IDE.
+
+2.  **Environment Variables Not Working**:
+    *   **Symptom**: API calls fail with network errors.
+    *   **Cause**: `.env` file not loaded or incorrect variable names.
+    *   **Fix**: Ensure variables start with `VITE_` and restart dev server.

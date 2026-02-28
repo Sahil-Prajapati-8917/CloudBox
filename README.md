@@ -19,6 +19,11 @@ A **full-stack, production-ready** cloud storage management dashboard with AWS S
 - Protected API endpoints with middleware
 - Session management with automatic logout
 
+### 👤 **User Profile & Settings**
+- Comprehensive Profile management for users
+- Account configuration for managing preferences and application settings
+- Dedicated user pages: `Profile`, `Account`, and `Settings`
+
 ### 📁 **File Management**
 - **Drag & Drop Upload** - Seamless file uploads to AWS S3
 - **Smart File Organization** - Folder-based structure with breadcrumbs

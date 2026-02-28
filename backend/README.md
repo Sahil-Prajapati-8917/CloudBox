@@ -1,11 +1,11 @@
 # 🔧 CloudBox Backend API - Production-Ready File Storage
 
-A **robust, scalable, and secure** backend API for CloudBox built with modern Node.js technologies. Features enterprise-grade security, AWS S3 integration, and comprehensive file management with real-time processing.
+A **robust, scalable, and secure** backend API for CloudBox built with modern Node.js technologies. Features enterprise-grade security, direct-to-S3 signed URL uploads, and comprehensive file management optimized for serverless deployments.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
 ![Express](https://img.shields.io/badge/Express-4-black.svg)
-![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-blue.svg)
+![MongoDB](https://img.shields.io/badge/MongoDB-7+-blue.svg)
 ![AWS S3](https://img.shields.io/badge/AWS-S3-orange.svg)
 
 ## 🚀 Key Features
@@ -18,12 +18,13 @@ A **robust, scalable, and secure** backend API for CloudBox built with modern No
 - **CORS Protection** - Configurable Cross-Origin Resource Sharing
 
 ### 📁 **File Management & Storage**
+- **Direct S3 Uploads** - Signed URL architecture bypassing server processing for scalability
 - **AWS S3 Integration** - Scalable cloud storage with multi-region support
-- **Large File Support** - Streaming uploads for files up to 100MB
-- **Secure Access** - Time-limited signed URLs (1-hour expiration) for file retrieval
+- **Large File Support** - Files up to 100MB with client-side streaming uploads
+- **Secure Access** - Time-limited signed URLs (15min upload, 1hr access) for file retrieval
 - **Metadata Management** - Comprehensive file information storage in MongoDB
 - **File Organization** - Folder-based structure with nested file support
-- **Real-time Processing** - Instant file validation and processing
+- **No Server Processing** - Optimized for serverless deployments (Render, Vercel)
 
 ### 🗄️ **Database & Performance**
 - **MongoDB Atlas** - Cloud-hosted database with automatic scaling
@@ -115,23 +116,81 @@ backend/
 
 *   `POST /api/auth/register` - Create account
     *   Body: `{ name, email, password }`
+    *   Response: `{ user, token }`
 *   `POST /api/auth/login` - Login
     *   Body: `{ email, password }`
+    *   Response: `{ user, token }`
+*   `GET /api/auth/profile` - Get user profile
+    *   Headers: `Authorization: Bearer <token>`
+    *   Response: `{ _id, name, email, ... }`
 
 ### Files (Requires Header `Authorization: Bearer <token>`)
 
-*   `POST /api/files/upload` - Upload file
-    *   Body (Form-Data): `file`
-*   `GET /api/files` - List files
-    *   Returns: `[{ _id, fileName, url (signed), ... }]`
+*   `POST /api/files/upload` - Prepare file upload with signed URL
+    *   Body: `{ fileName, fileType, fileSize, parentId? }`
+    *   Response: `{ signedUrl, fileData, uploadId }`
+*   `POST /api/files/confirm-upload` - Confirm successful upload
+    *   Body: `{ uploadId, fileData }`
+    *   Response: `{ _id, fileName, fileType, ... }`
+*   `GET /api/files` - List files with signed URLs
+    *   Query: `?parentId=<folder_id>`
+    *   Returns: `[{ _id, fileName, fileType, url (signed), size, ... }]`
 *   `DELETE /api/files/:id` - Delete file
+    *   Response: `{ message: "File removed" }`
+*   `POST /api/files/create-folder` - Create folder
+    *   Body: `{ name, parentId? }`
+    *   Response: `{ _id, fileName, isFolder: true, ... }`
+
+### Upload Flow
+
+1. **Prepare Upload**: Call `POST /api/files/upload` with file metadata
+2. **Direct S3 Upload**: Use returned `signedUrl` to upload file directly to S3
+3. **Confirm Upload**: Call `POST /api/files/confirm-upload` to save metadata
+
+```javascript
+// Example upload flow
+const prepareResponse = await api.post('/files/upload', {
+  fileName: 'document.pdf',
+  fileType: 'application/pdf',
+  fileSize: 1024000
+});
+
+const { signedUrl, fileData, uploadId } = prepareResponse.data;
+
+// Upload directly to S3
+await fetch(signedUrl, {
+  method: 'PUT',
+  body: file,
+  headers: { 'Content-Type': file.type }
+});
+
+// Confirm upload
+await api.post('/files/confirm-upload', { uploadId, fileData });
+```
 
 ## ❓ Troubleshooting
 
+### Database & Authentication
 *   **MongoDB Error**: Ensure your IP is whitelisted in MongoDB Atlas Network Access.
-*   **S3 Access Denied**: Check IAM policy permissions (`PutObject`, `GetObject`, `DeleteObject`).
 *   **400 Bad Request on Login**:
-    *   **Cause**: User `admin@cloudbox.io` does not exist in a fresh database.
-    *   **Fix**: Register a new user via the `/api/auth/register` endpoint or use the Frontend Register page first.
-    *   **Note**: Validation errors (missing fields) also return 400. Check server logs for exact details.
-*   **JWT Errors**: If `JWT_SECRET` is missing in `.env`, the server will warn you on startup. Authentication requires this secret to be set.
+    *   **Cause**: User does not exist in database or invalid credentials.
+    *   **Fix**: Register a new user via the `/api/auth/register` endpoint first.
+*   **JWT Errors**: If `JWT_SECRET` is missing in `.env`, the server will warn you on startup.
+
+### File Upload Issues
+*   **S3 Access Denied**: Check IAM policy permissions (`PutObject`, `GetObject`, `DeleteObject`).
+*   **Signed URL Expired**: Upload URLs expire in 15 minutes. Call `/api/files/upload` again for a new URL.
+*   **Upload Fails Silently**: Check browser network tab for CORS errors. Ensure S3 bucket allows cross-origin requests.
+*   **File Not Found After Upload**: Confirm upload completed successfully before calling `/api/files/confirm-upload`.
+
+### Serverless Deployment
+*   **Render Free Tier Sleep**: Backend sleeps after inactivity. First request may be slow (cold start).
+*   **Timeout Errors**: Large uploads may timeout on free tiers. Consider paid plans for production.
+*   **CORS Issues**: Ensure frontend domain is whitelisted in server CORS configuration.
+
+### Common Error Codes
+*   **401 Unauthorized**: Invalid or expired JWT token. Try logging in again.
+*   **403 Forbidden**: User doesn't own the requested file or folder.
+*   **404 Not Found**: File/folder doesn't exist or signed URL has expired.
+*   **413 Payload Too Large**: File exceeds 100MB limit.
+*   **429 Too Many Requests**: Rate limiting active (if implemented).
